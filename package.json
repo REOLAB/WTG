@@ -1,0 +1,23 @@
+{
+  "name": "arrival-difficulty",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Serverless web prototype for destination arrival difficulty, designed for Windows exe and Android apk packaging.",
+  "scripts": {
+    "build": "node scripts/build-static.mjs",
+    "start": "node -e \"console.log('Serverless mode: open index.html directly in the browser.')\"",
+    "android:init": "npm install @capacitor/core @capacitor/cli @capacitor/android && npx cap init arrival-difficulty com.arrivaldifficulty.app --web-dir .",
+    "android:open": "npx cap sync android && npx cap open android",
+    "tauri:init": "npm install @tauri-apps/cli --save-dev && npx tauri init",
+    "tauri:build": "npx tauri build"
+  },
+  "keywords": [
+    "arrival",
+    "traffic",
+    "pwa",
+    "capacitor",
+    "tauri"
+  ],
+  "author": "",
+  "license": "UNLICENSED"
+}

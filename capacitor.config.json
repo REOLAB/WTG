@@ -1,0 +1,8 @@
+{
+  "appId": "com.arrivaldifficulty.app",
+  "appName": "도착 난이도",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  }
+}

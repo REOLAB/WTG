@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#10231f" />
+    <title>도착 난이도</title>
+    <link rel="manifest" href="./manifest.json" />
+    <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="control-panel" aria-label="목적지 검색과 도착 난이도">
+        <div class="brand-row">
+          <div>
+            <p class="eyebrow">Arrival Difficulty</p>
+            <h1>도착 난이도</h1>
+          </div>
+          <button class="icon-button" id="locateButton" type="button" title="현재 위치 기준">
+            <span aria-hidden="true">⌖</span>
+          </button>
+        </div>
+
+        <form class="search-box" id="searchForm">
+          <label class="sr-only" for="searchInput">목적지 검색</label>
+          <input id="searchInput" name="query" autocomplete="off" placeholder="목적지, 상권, 역 이름 검색" />
+          <button type="submit">검색</button>
+        </form>
+
+        <p class="mode-status" id="modeStatus">데모 모드 · 서버 없이 동작</p>
+
+        <section class="departure-panel" aria-label="출발 시간 선택">
+          <div class="departure-title">
+            <span>출발 기준</span>
+            <strong id="departureLabel">지금</strong>
+          </div>
+          <div class="departure-options" id="departureOptions">
+            <button class="active" type="button" data-hour="now">지금</button>
+            <button type="button" data-hour="8">아침</button>
+            <button type="button" data-hour="12">점심</button>
+            <button type="button" data-hour="18">퇴근</button>
+            <button type="button" data-hour="2">심야</button>
+          </div>
+        </section>
+
+        <div class="quick-list" id="quickList" aria-label="빠른 목적지"></div>
+
+        <section class="result-list" id="resultList" aria-label="검색 결과"></section>
+
+        <section class="difficulty-card" aria-label="도착 난이도 요약">
+          <div class="score-header">
+            <div>
+              <p class="section-kicker">현재 목적지</p>
+              <h2 id="placeName">성수 카페거리</h2>
+              <p id="placeAddress">서울 성동구 성수동2가</p>
+            </div>
+            <div class="score-ring" id="scoreRing" style="--score: 68">
+              <strong id="scoreValue">68</strong>
+              <span>/100</span>
+            </div>
+          </div>
+
+          <div class="status-row">
+            <span class="level-pill" id="levelPill">어려움</span>
+            <span class="confidence-pill" id="confidencePill">신뢰도 보통</span>
+          </div>
+
+          <p class="summary" id="summaryText">
+            주변 진입도로 속도가 낮고 시간대 패턴상 방문 수요가 올라가는 구간입니다.
+          </p>
+
+          <div class="factor-grid" id="factorGrid"></div>
+        </section>
+      </section>
+
+      <section class="map-stage" aria-label="지도">
+        <div class="map-toolbar">
+          <button class="chip active" data-layer="traffic" type="button">교통</button>
+          <button class="chip" data-layer="radius" type="button">반경</button>
+          <button class="chip" data-layer="route" type="button">진입로</button>
+        </div>
+
+        <div class="mock-map" id="mockMap">
+          <div class="kakao-map" id="kakaoMap" aria-label="카카오 지도"></div>
+          <div class="map-grid"></div>
+          <div class="traffic-road road-a"></div>
+          <div class="traffic-road road-b"></div>
+          <div class="traffic-road road-c"></div>
+          <div class="route-line"></div>
+          <div class="radius-circle"></div>
+          <button class="destination-marker" id="destinationMarker" type="button" aria-label="선택된 목적지">
+            <span></span>
+          </button>
+          <div class="map-label label-a">주요 진입로</div>
+          <div class="map-label label-b">상권 밀집</div>
+          <div class="map-label label-c">대중교통 환승</div>
+        </div>
+
+        <aside class="bottom-sheet" aria-label="서비스별 도착 난이도">
+          <div class="sheet-handle"></div>
+          <div class="sheet-title-row">
+            <div>
+              <p class="section-kicker">서비스별 보기</p>
+              <h2>3개 내비 기준 표시</h2>
+            </div>
+            <span id="updatedAt">방금 갱신</span>
+          </div>
+          <div class="service-grid" id="serviceGrid"></div>
+        </aside>
+      </section>
+    </main>
+
+    <script src="./config.js"></script>
+    <script src="./app.js"></script>
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("./sw.js").catch(() => {});
+        });
+      }
+    </script>
+  </body>
+</html>
