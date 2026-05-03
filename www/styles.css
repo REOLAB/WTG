@@ -451,6 +451,47 @@ h2 {
   line-height: 1.55;
 }
 
+.time-hero,
+.sheet-time-hero {
+  display: grid;
+  border: 1px solid rgba(47, 109, 181, 0.18);
+  border-radius: 8px;
+  background: #f3f7fb;
+}
+
+.time-hero {
+  gap: 8px;
+  padding: 14px;
+}
+
+.time-hero div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.time-hero p,
+.sheet-time-hero span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.time-hero strong {
+  color: var(--blue);
+  font-size: 30px;
+  line-height: 1;
+}
+
+.time-hero span,
+.sheet-time-hero p {
+  color: #40544e;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
 .factor-grid,
 .service-grid {
   display: grid;
@@ -729,6 +770,18 @@ h2 {
 .service-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-top: 14px;
+}
+
+.sheet-time-hero {
+  gap: 5px;
+  margin-top: 14px;
+  padding: 12px;
+}
+
+.sheet-time-hero strong {
+  color: var(--blue);
+  font-size: 24px;
+  line-height: 1.05;
 }
 
 .service-card p {

@@ -113,10 +113,11 @@ const serviceProfiles = [
 ];
 
 const categoryProfiles = [
-  { keywords: ["공항", "터미널"], multiplier: 0.92 },
-  { keywords: ["역", "환승"], multiplier: 0.95 },
-  { keywords: ["상권", "카페", "음식점", "관광", "시설"], multiplier: 1.0 },
-  { keywords: ["학교", "병원", "공공기관"], multiplier: 0.82 },
+  { keywords: ["공항", "터미널"], multiplier: 0.92, crowdBase: 54, peakHours: [7, 8, 9, 17, 18, 19] },
+  { keywords: ["역", "환승"], multiplier: 0.95, crowdBase: 62, peakHours: [8, 9, 18, 19] },
+  { keywords: ["상권", "카페", "음식점"], multiplier: 1.0, crowdBase: 68, peakHours: [12, 13, 18, 19, 20] },
+  { keywords: ["관광", "시설"], multiplier: 1.0, crowdBase: 64, peakHours: [13, 14, 15, 16] },
+  { keywords: ["학교", "병원", "공공기관"], multiplier: 0.82, crowdBase: 44, peakHours: [9, 10, 14, 15] },
 ];
 
 const MAX_AUTO_LOCATION_ACCURACY_M = 1000;
@@ -157,6 +158,10 @@ const elements = {
   levelPill: document.querySelector("#levelPill"),
   confidencePill: document.querySelector("#confidencePill"),
   summaryText: document.querySelector("#summaryText"),
+  travelTimeValue: document.querySelector("#travelTimeValue"),
+  travelTimeMeta: document.querySelector("#travelTimeMeta"),
+  sheetTravelTimeValue: document.querySelector("#sheetTravelTimeValue"),
+  sheetTravelTimeMeta: document.querySelector("#sheetTravelTimeMeta"),
   factorGrid: document.querySelector("#factorGrid"),
   serviceGrid: document.querySelector("#serviceGrid"),
   mockMap: document.querySelector("#mockMap"),
@@ -469,8 +474,34 @@ function getCategoryProfile(place) {
   return (
     categoryProfiles.find((profile) => {
       return profile.keywords.some((keyword) => text.includes(keyword.toLowerCase()));
-    }) || { multiplier: 0.9 }
+    }) || { multiplier: 0.9, crowdBase: 48, peakHours: [12, 18] }
   );
+}
+
+function estimatePlaceCrowd(place) {
+  const profile = getCategoryProfile(place);
+  const hour = getCurrentHour();
+  const peakDistance = Math.min(...profile.peakHours.map((peakHour) => Math.abs(peakHour - hour)));
+  const peakBoost = peakDistance === 0 ? 18 : peakDistance === 1 ? 10 : peakDistance === 2 ? 4 : -6;
+  const weekendBoost = [0, 6].includes(new Date().getDay()) ? 6 : 0;
+  const generatedBias = place.id.startsWith("generated") || place.id.startsWith("kakao") ? hashText(place.name) % 9 : 0;
+  const difficulty = clamp(Math.round(profile.crowdBase + peakBoost + weekendBoost + generatedBias));
+
+  return {
+    difficulty,
+    source: "장소 유형 + 시간대 추정",
+    reason: `${profile.keywords[0]} 유형 · ${String(hour).padStart(2, "0")}시 기준`,
+  };
+}
+
+function applyPlaceCrowdEstimate(place) {
+  if (place.liveCrowd?.type === "external") return false;
+
+  const crowd = estimatePlaceCrowd(place);
+  place.liveCrowd = { ...crowd, type: "local" };
+  place.data.place = crowd.difficulty;
+  place.available.place = true;
+  return true;
 }
 
 function applyContextAdjustment(baseScore, place) {
@@ -507,6 +538,33 @@ function describe(place, score) {
 
   const level = getLevel(score).label;
   return `${topFactors.join(", ")} 영향이 큽니다. ${getTimeProfile().reason} 현재 기준 도착 난이도는 ${level}입니다.`;
+}
+
+function formatTravelTime(routeEstimate) {
+  if (!routeEstimate) {
+    return {
+      value: "출발지 필요",
+      meta: "현재 위치 또는 출발지를 적용하세요",
+    };
+  }
+
+  const minutes = Math.max(1, Math.round(routeEstimate.expectedMinutes));
+  const hours = Math.floor(minutes / 60);
+  const restMinutes = minutes % 60;
+  const value = hours > 0 ? `${hours}시간 ${restMinutes}분` : `약 ${minutes}분`;
+  const delayText = routeEstimate.delayRate > 0 ? `평시 대비 +${Math.round(routeEstimate.delayRate)}%` : "평시 수준";
+  return {
+    value,
+    meta: `${routeEstimate.source} · ${routeEstimate.drivingDistance.toFixed(1)}km · ${delayText}`,
+  };
+}
+
+function renderTravelTime(place) {
+  const travelTime = formatTravelTime(place.routeEstimate);
+  elements.travelTimeValue.textContent = travelTime.value;
+  elements.travelTimeMeta.textContent = travelTime.meta;
+  elements.sheetTravelTimeValue.textContent = travelTime.value;
+  elements.sheetTravelTimeMeta.textContent = travelTime.meta;
 }
 
 function renderQuickList() {
@@ -551,6 +609,10 @@ function renderFactors(place) {
         key === "delay" && place.routeEstimate
           ? `<p class="factor-note">${place.routeEstimate.source} · 약 ${place.routeEstimate.expectedMinutes}분 · ${place.routeEstimate.drivingDistance.toFixed(1)}km</p>`
           : "";
+      const crowdNote =
+        key === "place" && place.liveCrowd
+          ? `<p class="factor-note">${place.liveCrowd.source} · ${place.liveCrowd.reason}</p>`
+          : "";
       return `
         <article class="factor-card">
           <div class="factor-top">
@@ -562,6 +624,7 @@ function renderFactors(place) {
           </div>
           ${liveNote}
           ${routeNote}
+          ${crowdNote}
         </article>
       `;
     })
@@ -615,6 +678,7 @@ function stabilizeKakaoMap(delay = 80) {
 }
 
 function renderPlace(place) {
+  applyPlaceCrowdEstimate(place);
   if (place.routeEstimate?.type !== "proxy") {
     applyRouteEstimate(place);
   }
@@ -638,6 +702,7 @@ function renderPlace(place) {
   }).format(new Date());
   elements.departureLabel.textContent = formatDepartureLabel();
 
+  renderTravelTime(place);
   renderFactors(place);
   renderServices(score);
   renderMap(place);
