@@ -30,6 +30,35 @@
 
         <p class="mode-status" id="modeStatus" data-tone="info">데모 모드 · 서버 없이 동작</p>
 
+        <section class="diagnostics-panel" aria-label="연결 진단">
+          <div class="diagnostics-title">
+            <span>연결 진단</span>
+            <button id="diagnosticsRetry" type="button">재확인</button>
+          </div>
+          <dl class="diagnostics-list">
+            <div>
+              <dt>실행 주소</dt>
+              <dd id="diagOrigin">확인 중</dd>
+            </div>
+            <div>
+              <dt>Kakao 키</dt>
+              <dd id="diagKakaoKey">확인 중</dd>
+            </div>
+            <div>
+              <dt>Kakao 지도</dt>
+              <dd id="diagKakaoMap">대기 중</dd>
+            </div>
+            <div>
+              <dt>ITS 키</dt>
+              <dd id="diagItsKey">확인 중</dd>
+            </div>
+            <div>
+              <dt>ITS 도로</dt>
+              <dd id="diagItsTraffic">대기 중</dd>
+            </div>
+          </dl>
+        </section>
+
         <section class="departure-panel" aria-label="출발 시간 선택">
           <div class="departure-title">
             <span>출발 기준</span>

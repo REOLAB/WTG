@@ -130,6 +130,12 @@ let relayoutTimer = null;
 let activeTrafficRequestId = 0;
 let selectedDepartureHour = null;
 let userLocation = null;
+let diagnostics = {
+  kakaoKey: "확인 중",
+  kakaoMap: "대기 중",
+  itsKey: "확인 중",
+  itsTraffic: "대기 중",
+};
 
 const elements = {
   quickList: document.querySelector("#quickList"),
@@ -150,6 +156,12 @@ const elements = {
   updatedAt: document.querySelector("#updatedAt"),
   locateButton: document.querySelector("#locateButton"),
   modeStatus: document.querySelector("#modeStatus"),
+  diagnosticsRetry: document.querySelector("#diagnosticsRetry"),
+  diagOrigin: document.querySelector("#diagOrigin"),
+  diagKakaoKey: document.querySelector("#diagKakaoKey"),
+  diagKakaoMap: document.querySelector("#diagKakaoMap"),
+  diagItsKey: document.querySelector("#diagItsKey"),
+  diagItsTraffic: document.querySelector("#diagItsTraffic"),
   departureOptions: document.querySelector("#departureOptions"),
   departureLabel: document.querySelector("#departureLabel"),
 };
@@ -157,6 +169,31 @@ const elements = {
 function setModeStatus(message, tone = "info") {
   elements.modeStatus.textContent = message;
   elements.modeStatus.dataset.tone = tone;
+}
+
+function formatOrigin() {
+  if (window.location.protocol === "file:") return "file:// 직접 실행";
+  return window.location.origin;
+}
+
+function renderDiagnostics() {
+  elements.diagOrigin.textContent = formatOrigin();
+  elements.diagKakaoKey.textContent = diagnostics.kakaoKey;
+  elements.diagKakaoMap.textContent = diagnostics.kakaoMap;
+  elements.diagItsKey.textContent = diagnostics.itsKey;
+  elements.diagItsTraffic.textContent = diagnostics.itsTraffic;
+}
+
+function updateDiagnostics(next) {
+  diagnostics = { ...diagnostics, ...next };
+  renderDiagnostics();
+}
+
+function refreshConfigDiagnostics() {
+  updateDiagnostics({
+    kakaoKey: window.APP_CONFIG?.KAKAO_JAVASCRIPT_KEY?.trim() ? "설정됨" : "미설정",
+    itsKey: getItsTrafficKey() ? "설정됨" : "미설정",
+  });
 }
 
 function clamp(value, min = 0, max = 100) {
@@ -647,9 +684,18 @@ async function refreshLiveTraffic(place) {
   const requestId = ++activeTrafficRequestId;
   const key = getItsTrafficKey();
 
-  if (!key || !place.coord) return;
+  if (!key) {
+    updateDiagnostics({ itsTraffic: "키 미설정" });
+    return;
+  }
+
+  if (!place.coord) {
+    updateDiagnostics({ itsTraffic: "좌표 없음" });
+    return;
+  }
 
   setModeStatus(kakaoMap ? "Kakao 지도 · 실시간 도로 확인 중" : "실시간 도로 확인 중", "loading");
+  updateDiagnostics({ itsTraffic: "조회 중" });
 
   try {
     const liveTraffic = await fetchItsTraffic(place);
@@ -657,6 +703,7 @@ async function refreshLiveTraffic(place) {
 
     if (!liveTraffic) {
       setModeStatus(kakaoMap ? "Kakao 지도 · 주변 ITS 구간 없음" : "주변 ITS 구간 없음", "warning");
+      updateDiagnostics({ itsTraffic: "주변 구간 없음" });
       applyRouteEstimate(place);
       renderPlace(place);
       return;
@@ -667,11 +714,13 @@ async function refreshLiveTraffic(place) {
     place.available.road = true;
     applyRouteEstimate(place);
     setModeStatus(`Kakao 지도 · ITS ${Math.round(liveTraffic.avgSpeed)}km/h 반영`, "success");
+    updateDiagnostics({ itsTraffic: `${Math.round(liveTraffic.avgSpeed)}km/h · ${liveTraffic.sampleCount}개` });
     renderPlace(place);
   } catch (error) {
     if (requestId !== activeTrafficRequestId) return;
     console.warn(error?.message || "ITS traffic failed");
     setModeStatus(kakaoMap ? "Kakao 지도 · 실시간 도로 미반영" : "실시간 도로 미반영", "error");
+    updateDiagnostics({ itsTraffic: "조회 실패" });
   }
 }
 
@@ -712,10 +761,12 @@ function loadKakaoSdk(key) {
 async function enableKakaoMode(key) {
   if (!key) {
     setModeStatus("데모 모드 · config.js에 Kakao JavaScript 키를 설정하세요", "info");
+    updateDiagnostics({ kakaoMap: "키 미설정" });
     return;
   }
 
   setModeStatus("Kakao 지도 연결 중", "loading");
+  updateDiagnostics({ kakaoMap: "연결 중" });
 
   try {
     await loadKakaoSdk(key);
@@ -731,6 +782,7 @@ async function enableKakaoMode(key) {
     kakaoPlaces = new window.kakao.maps.services.Places();
     elements.mockMap.classList.add("has-real-map");
     setModeStatus("Kakao 실제 검색 모드 · 서버 없이 동작", "success");
+    updateDiagnostics({ kakaoMap: "연결됨" });
     updateKakaoMap(selectedPlace);
     stabilizeKakaoMap(120);
     refreshLiveTraffic(selectedPlace);
@@ -745,6 +797,7 @@ async function enableKakaoMode(key) {
     }
     elements.mockMap.classList.remove("has-real-map");
     setModeStatus("Kakao 연결 실패 · 데모 모드", "error");
+    updateDiagnostics({ kakaoMap: "연결 실패" });
     console.warn(error?.message || "Kakao map failed to load");
   }
 }
@@ -760,6 +813,7 @@ function disableKakaoMode() {
   }
   elements.mockMap.classList.remove("has-real-map");
   setModeStatus("데모 모드 · 서버 없이 동작", "info");
+  updateDiagnostics({ kakaoMap: "꺼짐" });
 }
 
 function updateKakaoMap(place) {
@@ -815,6 +869,15 @@ elements.locateButton.addEventListener("click", () => {
   );
 });
 
+elements.diagnosticsRetry.addEventListener("click", () => {
+  refreshConfigDiagnostics();
+  updateDiagnostics({
+    kakaoMap: kakaoMap ? "연결됨" : diagnostics.kakaoMap,
+  });
+  enableKakaoMode(window.APP_CONFIG?.KAKAO_JAVASCRIPT_KEY || "");
+  refreshLiveTraffic(selectedPlace);
+});
+
 elements.departureOptions.querySelectorAll("button").forEach((button) => {
   button.addEventListener("click", () => {
     const value = button.dataset.hour;
@@ -845,6 +908,7 @@ window.addEventListener("orientationchange", () => {
 
 async function initApp() {
   await (window.APP_CONFIG_READY || Promise.resolve());
+  refreshConfigDiagnostics();
   renderQuickList();
   renderResults();
   renderPlace(selectedPlace);
