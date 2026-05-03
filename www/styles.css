@@ -163,9 +163,40 @@ h2 {
 }
 
 .mode-status {
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #eef4f0;
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
+  line-height: 1.2;
+}
+
+.mode-status[data-tone="loading"] {
+  border-color: rgba(47, 109, 181, 0.24);
+  background: #eaf0f8;
+  color: var(--blue);
+}
+
+.mode-status[data-tone="success"] {
+  border-color: rgba(45, 143, 111, 0.24);
+  background: #e5f3ec;
+  color: var(--green);
+}
+
+.mode-status[data-tone="warning"] {
+  border-color: rgba(216, 162, 32, 0.28);
+  background: #fff4d7;
+  color: #8c6209;
+}
+
+.mode-status[data-tone="error"] {
+  border-color: rgba(200, 79, 69, 0.24);
+  background: #fde8e5;
+  color: var(--red);
 }
 
 .departure-panel {

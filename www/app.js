@@ -154,6 +154,11 @@ const elements = {
   departureLabel: document.querySelector("#departureLabel"),
 };
 
+function setModeStatus(message, tone = "info") {
+  elements.modeStatus.textContent = message;
+  elements.modeStatus.dataset.tone = tone;
+}
+
 function clamp(value, min = 0, max = 100) {
   return Math.max(min, Math.min(max, value));
 }
@@ -550,10 +555,25 @@ function searchKakaoPlaces(query) {
 }
 
 async function runSearch(query) {
-  const kakaoResults = await searchKakaoPlaces(query);
+  setModeStatus(kakaoPlaces ? "Kakao 장소 검색 중" : "데모 검색 중", "loading");
+
+  let kakaoResults = null;
+  try {
+    kakaoResults = await searchKakaoPlaces(query);
+  } catch (error) {
+    console.warn(error?.message || "Kakao search failed");
+    setModeStatus("Kakao 검색 실패 · 데모 결과 사용", "warning");
+  }
+
   const results = kakaoResults || searchPlaces(query);
   renderResults(results);
   selectPlace(results[0]);
+
+  if (kakaoResults) {
+    setModeStatus("Kakao 장소 검색 완료", "success");
+  } else if (query.trim()) {
+    setModeStatus("데모 결과로 표시 중", "info");
+  }
 }
 
 function getItsTrafficKey() {
@@ -629,14 +649,14 @@ async function refreshLiveTraffic(place) {
 
   if (!key || !place.coord) return;
 
-  elements.modeStatus.textContent = kakaoMap ? "Kakao 지도 · 실시간 도로 확인 중" : "실시간 도로 확인 중";
+  setModeStatus(kakaoMap ? "Kakao 지도 · 실시간 도로 확인 중" : "실시간 도로 확인 중", "loading");
 
   try {
     const liveTraffic = await fetchItsTraffic(place);
     if (requestId !== activeTrafficRequestId || selectedPlace.id !== place.id) return;
 
     if (!liveTraffic) {
-      elements.modeStatus.textContent = kakaoMap ? "Kakao 지도 · 주변 ITS 구간 없음" : "주변 ITS 구간 없음";
+      setModeStatus(kakaoMap ? "Kakao 지도 · 주변 ITS 구간 없음" : "주변 ITS 구간 없음", "warning");
       applyRouteEstimate(place);
       renderPlace(place);
       return;
@@ -646,12 +666,12 @@ async function refreshLiveTraffic(place) {
     place.data.roadFlow = liveTraffic.difficulty;
     place.available.road = true;
     applyRouteEstimate(place);
-    elements.modeStatus.textContent = `Kakao 지도 · ITS ${Math.round(liveTraffic.avgSpeed)}km/h 반영`;
+    setModeStatus(`Kakao 지도 · ITS ${Math.round(liveTraffic.avgSpeed)}km/h 반영`, "success");
     renderPlace(place);
   } catch (error) {
     if (requestId !== activeTrafficRequestId) return;
     console.warn(error?.message || "ITS traffic failed");
-    elements.modeStatus.textContent = kakaoMap ? "Kakao 지도 · 실시간 도로 미반영" : "실시간 도로 미반영";
+    setModeStatus(kakaoMap ? "Kakao 지도 · 실시간 도로 미반영" : "실시간 도로 미반영", "error");
   }
 }
 
@@ -691,11 +711,11 @@ function loadKakaoSdk(key) {
 
 async function enableKakaoMode(key) {
   if (!key) {
-    elements.modeStatus.textContent = "데모 모드 · config.js에 Kakao JavaScript 키를 설정하세요";
+    setModeStatus("데모 모드 · config.js에 Kakao JavaScript 키를 설정하세요", "info");
     return;
   }
 
-  elements.modeStatus.textContent = "Kakao 지도 연결 중";
+  setModeStatus("Kakao 지도 연결 중", "loading");
 
   try {
     await loadKakaoSdk(key);
@@ -710,7 +730,7 @@ async function enableKakaoMode(key) {
     });
     kakaoPlaces = new window.kakao.maps.services.Places();
     elements.mockMap.classList.add("has-real-map");
-    elements.modeStatus.textContent = "Kakao 실제 검색 모드 · 서버 없이 동작";
+    setModeStatus("Kakao 실제 검색 모드 · 서버 없이 동작", "success");
     updateKakaoMap(selectedPlace);
     stabilizeKakaoMap(120);
     refreshLiveTraffic(selectedPlace);
@@ -724,7 +744,7 @@ async function enableKakaoMode(key) {
       kakaoScriptElement = null;
     }
     elements.mockMap.classList.remove("has-real-map");
-    elements.modeStatus.textContent = "Kakao 연결 실패 · 데모 모드";
+    setModeStatus("Kakao 연결 실패 · 데모 모드", "error");
     console.warn(error?.message || "Kakao map failed to load");
   }
 }
@@ -739,7 +759,7 @@ function disableKakaoMode() {
     kakaoScriptElement = null;
   }
   elements.mockMap.classList.remove("has-real-map");
-  elements.modeStatus.textContent = "데모 모드 · 서버 없이 동작";
+  setModeStatus("데모 모드 · 서버 없이 동작", "info");
 }
 
 function updateKakaoMap(place) {
@@ -762,13 +782,13 @@ elements.searchInput.addEventListener("input", () => {
 elements.locateButton.addEventListener("click", () => {
   if (!navigator.geolocation) {
     elements.locateButton.title = "현재 위치를 사용할 수 없습니다";
-    elements.modeStatus.textContent = "현재 위치를 사용할 수 없습니다";
+    setModeStatus("현재 위치를 사용할 수 없습니다", "error");
     return;
   }
 
   elements.locateButton.disabled = true;
   elements.locateButton.classList.add("is-loading");
-  elements.modeStatus.textContent = "현재 위치 확인 중";
+  setModeStatus("현재 위치 확인 중", "loading");
 
   navigator.geolocation.getCurrentPosition(
     (position) => {
@@ -783,13 +803,13 @@ elements.locateButton.addEventListener("click", () => {
       applyRouteEstimate(selectedPlace);
       renderPlace(selectedPlace);
       refreshLiveTraffic(selectedPlace);
-      elements.modeStatus.textContent = `현재 위치 기준 · 정확도 약 ${Math.round(position.coords.accuracy)}m`;
+      setModeStatus(`현재 위치 기준 · 정확도 약 ${Math.round(position.coords.accuracy)}m`, "success");
     },
     () => {
       elements.locateButton.title = "위치 권한이 필요합니다";
       elements.locateButton.disabled = false;
       elements.locateButton.classList.remove("is-loading");
-      elements.modeStatus.textContent = "위치 권한이 필요합니다";
+      setModeStatus("위치 권한이 필요합니다", "warning");
     },
     { enableHighAccuracy: true, timeout: 5000 },
   );
