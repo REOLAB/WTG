@@ -1,14 +1,22 @@
 const url = process.env.ROUTE_PROXY_URL || "http://127.0.0.1:8787/route-estimate";
 
-const response = await fetch(url, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    origin: { lat: 37.5547, lng: 126.9706 },
-    destination: { lat: 37.3947, lng: 127.1112 },
-    departureHour: 10,
-  }),
-});
+let response;
+try {
+  response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      origin: { lat: 37.5547, lng: 126.9706 },
+      destination: { lat: 37.3947, lng: 127.1112 },
+      departureHour: 10,
+    }),
+  });
+} catch (error) {
+  console.error(`Route proxy check failed: cannot connect to ${url}`);
+  console.error("Start the proxy first with: npm run route:dev");
+  console.error(error.message);
+  process.exit(1);
+}
 
 if (!response.ok) {
   console.error(`Route proxy check failed: HTTP ${response.status}`);

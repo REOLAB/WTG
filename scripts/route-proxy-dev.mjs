@@ -1,6 +1,8 @@
 import { createServer } from "node:http";
 
 const port = Number(process.env.PORT || 8787);
+const routeProvider = (process.env.ROUTE_PROVIDER || "local").toLowerCase();
+const tmapAppKey = process.env.TMAP_APP_KEY || "";
 
 function clamp(value, min = 0, max = 100) {
   return Math.max(min, Math.min(max, value));
@@ -64,19 +66,7 @@ function delayDifficultyFromRate(delayRate, timeLabel) {
 }
 
 function estimateRoute(payload) {
-  const origin = payload?.origin;
-  const destination = payload?.destination;
-  const departureHour = Number.isFinite(Number(payload?.departureHour))
-    ? Number(payload.departureHour)
-    : new Date().getHours();
-
-  if (!Number.isFinite(origin?.lat) || !Number.isFinite(origin?.lng)) {
-    throw new Error("origin.lat and origin.lng are required");
-  }
-
-  if (!Number.isFinite(destination?.lat) || !Number.isFinite(destination?.lng)) {
-    throw new Error("destination.lat and destination.lng are required");
-  }
+  const { origin, destination, departureHour } = parseRoutePayload(payload);
 
   const timeLabel = getTimeLabel(departureHour);
   const straightDistance = distanceKm(origin, destination);
@@ -96,6 +86,109 @@ function estimateRoute(payload) {
     difficulty: delayDifficultyFromRate(delayRate, timeLabel),
     timeLabel,
   };
+}
+
+function parseRoutePayload(payload) {
+  const origin = payload?.origin;
+  const destination = payload?.destination;
+  const departureHour = Number.isFinite(Number(payload?.departureHour))
+    ? Number(payload.departureHour)
+    : new Date().getHours();
+
+  if (!Number.isFinite(origin?.lat) || !Number.isFinite(origin?.lng)) {
+    throw new Error("origin.lat and origin.lng are required");
+  }
+
+  if (!Number.isFinite(destination?.lat) || !Number.isFinite(destination?.lng)) {
+    throw new Error("destination.lat and destination.lng are required");
+  }
+
+  return { origin, destination, departureHour };
+}
+
+function findTmapSummary(payload) {
+  const candidates = [
+    payload?.features?.[0]?.properties,
+    payload?.features?.find((feature) => feature?.properties?.totalTime)?.properties,
+    payload?.properties,
+  ];
+
+  return candidates.find((candidate) => candidate?.totalTime || candidate?.totalDistance);
+}
+
+function normalizeTmapRoute(payload, fallbackPayload) {
+  const { departureHour } = parseRoutePayload(fallbackPayload);
+  const fallback = estimateRoute(fallbackPayload);
+  const summary = findTmapSummary(payload);
+  if (!summary) return { ...fallback, source: "TMAP 응답 파싱 실패 · 로컬 추정" };
+
+  const totalDistanceMeters = Number(summary.totalDistance);
+  const totalTimeSeconds = Number(summary.totalTime);
+  if (!Number.isFinite(totalDistanceMeters) || !Number.isFinite(totalTimeSeconds)) {
+    return { ...fallback, source: "TMAP 응답 파싱 실패 · 로컬 추정" };
+  }
+
+  const drivingDistance = Math.max(0.1, totalDistanceMeters / 1000);
+  const expectedMinutes = Math.max(1, Math.round(totalTimeSeconds / 60));
+  const freeFlowSpeed = estimateFreeFlowSpeed(drivingDistance);
+  const freeFlowMinutes = Math.max(3, Math.round((drivingDistance / freeFlowSpeed) * 60));
+  const delayRate = clamp(Math.round(((expectedMinutes - freeFlowMinutes) / freeFlowMinutes) * 100), 0, 160);
+  const timeLabel = getTimeLabel(departureHour);
+
+  return {
+    source: "TMAP 자동차 경로",
+    drivingDistance: Number(drivingDistance.toFixed(1)),
+    expectedMinutes,
+    freeFlowMinutes,
+    delayRate,
+    difficulty: delayDifficultyFromRate(delayRate, timeLabel),
+    timeLabel,
+  };
+}
+
+async function fetchTmapRoute(payload) {
+  if (!tmapAppKey) {
+    return { ...estimateRoute(payload), source: "TMAP 키 없음 · 로컬 추정" };
+  }
+
+  const { origin, destination } = parseRoutePayload(payload);
+  const body = {
+    startX: String(origin.lng),
+    startY: String(origin.lat),
+    endX: String(destination.lng),
+    endY: String(destination.lat),
+    reqCoordType: "WGS84GEO",
+    resCoordType: "WGS84GEO",
+    searchOption: "0",
+    trafficInfo: "Y",
+    totalValue: "2",
+    startName: "origin",
+    endName: "destination",
+  };
+
+  const response = await fetch("https://apis.openapi.sk.com/tmap/routes?version=1", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      appKey: tmapAppKey,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`TMAP route request failed: ${response.status} ${message.slice(0, 120)}`);
+  }
+
+  return normalizeTmapRoute(await response.json(), payload);
+}
+
+async function routeEstimate(payload) {
+  if (routeProvider === "tmap") {
+    return fetchTmapRoute(payload);
+  }
+
+  return estimateRoute(payload);
 }
 
 function sendJson(response, statusCode, body) {
@@ -145,7 +238,7 @@ const server = createServer(async (request, response) => {
 
   try {
     const payload = await readJson(request);
-    sendJson(response, 200, estimateRoute(payload));
+    sendJson(response, 200, await routeEstimate(payload));
   } catch (error) {
     sendJson(response, 400, { error: "bad_request", message: error.message });
   }
@@ -153,4 +246,5 @@ const server = createServer(async (request, response) => {
 
 server.listen(port, "127.0.0.1", () => {
   console.log(`Route proxy dev server listening on http://127.0.0.1:${port}/route-estimate`);
+  console.log(`Route provider: ${routeProvider}${routeProvider === "tmap" && !tmapAppKey ? " (missing TMAP_APP_KEY, local fallback)" : ""}`);
 });
