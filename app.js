@@ -284,25 +284,56 @@ function distanceKm(from, to) {
   return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function routeDistanceMultiplier(straightDistance) {
+  if (straightDistance >= 30) return 1.12;
+  if (straightDistance >= 12) return 1.18;
+  if (straightDistance >= 5) return 1.25;
+  return 1.38;
+}
+
+function estimateFreeFlowSpeed(drivingDistance) {
+  if (drivingDistance >= 35) return 72;
+  if (drivingDistance >= 15) return 58;
+  if (drivingDistance >= 5) return 44;
+  return 32;
+}
+
+function estimateLocalRouteSpeed(drivingDistance, timeProfile, liveSpeed) {
+  if (liveSpeed && isCurrentDeparture()) {
+    const freeFlowSpeed = estimateFreeFlowSpeed(drivingDistance);
+    return clamp(liveSpeed * 0.35 + freeFlowSpeed * 0.65, 18, freeFlowSpeed);
+  }
+
+  const freeFlowSpeed = estimateFreeFlowSpeed(drivingDistance);
+  const multipliers = {
+    심야: 1.06,
+    일반: 0.95,
+    점심: 0.9,
+    저녁: 0.92,
+    출퇴근: drivingDistance >= 20 ? 0.82 : 0.72,
+  };
+
+  return Math.max(16, freeFlowSpeed * (multipliers[timeProfile.label] || 0.92));
+}
+
+function delayDifficultyFromRate(delayRate, timeProfile) {
+  const rushPenalty = timeProfile.label === "출퇴근" ? 6 : 0;
+  return clamp(Math.round(delayRate * 0.72 + rushPenalty));
+}
+
 function estimateRoute(place, origin = userLocation) {
   if (!origin || !isUsableOrigin(origin) || !place.coord) return null;
 
   const straightDistance = distanceKm(origin, place.coord);
-  const drivingDistance = Math.max(straightDistance * 1.32, 0.6);
+  const drivingDistance = Math.max(straightDistance * routeDistanceMultiplier(straightDistance), 0.6);
   const timeProfile = getTimeProfile();
   const liveSpeed = place.liveTraffic?.avgSpeed;
-  const baseSpeed =
-    liveSpeed && isCurrentDeparture()
-      ? liveSpeed
-      : timeProfile.label === "출퇴근"
-        ? 24
-        : timeProfile.label === "심야"
-          ? 46
-          : 32;
+  const baseSpeed = estimateLocalRouteSpeed(drivingDistance, timeProfile, liveSpeed);
+  const freeFlowSpeed = estimateFreeFlowSpeed(drivingDistance);
   const expectedMinutes = Math.max(4, Math.round((drivingDistance / Math.max(baseSpeed, 10)) * 60));
-  const freeFlowMinutes = Math.max(3, Math.round((drivingDistance / 46) * 60));
+  const freeFlowMinutes = Math.max(3, Math.round((drivingDistance / freeFlowSpeed) * 60));
   const delayRate = clamp(Math.round(((expectedMinutes - freeFlowMinutes) / freeFlowMinutes) * 100), 0, 160);
-  const difficulty = clamp(Math.round(delayRate * 0.58 + drivingDistance * 1.8 + (timeProfile.label === "출퇴근" ? 12 : 0)));
+  const difficulty = delayDifficultyFromRate(delayRate, timeProfile);
 
   return {
     drivingDistance,
@@ -310,7 +341,7 @@ function estimateRoute(place, origin = userLocation) {
     freeFlowMinutes,
     delayRate,
     difficulty,
-    source: liveSpeed && isCurrentDeparture() ? "현재 위치 + ITS 속도" : "현재 위치 + 시간대 추정",
+    source: liveSpeed && isCurrentDeparture() ? "현재 위치 + ITS 참고 추정" : "현재 위치 + 시간대 추정",
     type: "local",
   };
 }
@@ -346,7 +377,7 @@ function normalizeRoutePayload(payload) {
     delayRate: safeDelayRate,
     difficulty: Number.isFinite(difficulty)
       ? clamp(Math.round(difficulty))
-      : clamp(Math.round(safeDelayRate * 0.58 + drivingDistance * 1.8)),
+      : delayDifficultyFromRate(safeDelayRate, getTimeProfile()),
     source: payload?.source || "경로 API",
     type: "proxy",
   };
@@ -419,8 +450,8 @@ function getTimeProfile(hour = getCurrentHour()) {
   if (hour >= 1 && hour < 6) {
     return {
       label: "심야",
-      multiplier: 0.48,
-      offset: -10,
+      multiplier: 0.72,
+      offset: -6,
       reason: "심야 시간대라 일반 방문 수요와 주변 도로 혼잡을 낮게 보정했습니다.",
     };
   }
@@ -428,8 +459,8 @@ function getTimeProfile(hour = getCurrentHour()) {
   if ((hour >= 7 && hour < 10) || (hour >= 17 && hour < 20)) {
     return {
       label: "출퇴근",
-      multiplier: 1.16,
-      offset: 8,
+      multiplier: 1.08,
+      offset: 4,
       reason: "출퇴근 시간대라 진입 지연 가능성을 높게 보정했습니다.",
     };
   }
@@ -437,8 +468,8 @@ function getTimeProfile(hour = getCurrentHour()) {
   if (hour >= 11 && hour < 14) {
     return {
       label: "점심",
-      multiplier: 1.04,
-      offset: 2,
+      multiplier: 1.02,
+      offset: 1,
       reason: "점심 시간대 방문 수요를 약간 반영했습니다.",
     };
   }
@@ -446,17 +477,17 @@ function getTimeProfile(hour = getCurrentHour()) {
   if (hour >= 20 && hour < 24) {
     return {
       label: "저녁",
-      multiplier: 0.92,
-      offset: -3,
+      multiplier: 0.96,
+      offset: -2,
       reason: "저녁 이후에는 출퇴근 정체가 줄어드는 흐름을 반영했습니다.",
     };
   }
 
   return {
     label: "일반",
-    multiplier: 0.88,
-    offset: -4,
-    reason: "일반 시간대 기준으로 과도한 데모 점수를 낮춰 보정했습니다.",
+    multiplier: 0.98,
+    offset: -1,
+    reason: "일반 시간대 기준으로 완만하게 보정했습니다.",
   };
 }
 
@@ -519,13 +550,24 @@ function getLevel(score) {
 }
 
 function getConfidence(place) {
+  if (place.routeEstimate?.type === "proxy" && place.liveTraffic?.sampleCount > 0) {
+    return "신뢰도 높음 · 경로 API/실시간 도로 반영";
+  }
+
+  if (place.routeEstimate?.type === "proxy") {
+    return "신뢰도 보통 · 경로 API 반영";
+  }
+
   if (place.liveTraffic?.sampleCount > 0) {
-    return isCurrentDeparture() ? "신뢰도 높음 · 실시간 도로 반영" : "신뢰도 보통 · 현재 도로 참고";
+    return isCurrentDeparture() ? "신뢰도 보통 · ITS 도로 참고" : "신뢰도 낮음 · 현재 도로 참고";
+  }
+
+  if (place.routeEstimate?.type === "local") {
+    return "신뢰도 낮음 · 로컬 추정";
   }
 
   const count = availableKeys(place).length;
-  if (count >= 4) return "신뢰도 높음";
-  if (count >= 2) return "신뢰도 보통";
+  if (count >= 3) return "신뢰도 낮음 · 데모/추정";
   return "신뢰도 낮음";
 }
 
