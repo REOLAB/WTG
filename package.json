@@ -7,6 +7,8 @@
     "build": "node scripts/build-static.mjs",
     "estimate:check": "node scripts/check-estimates.mjs",
     "pwa:check": "node scripts/check-pwa.mjs",
+    "route:dev": "node scripts/route-proxy-dev.mjs",
+    "route:check": "node scripts/check-route-proxy.mjs",
     "start": "node -e \"console.log('Serverless mode: open index.html directly in the browser.')\"",
     "android:init": "npm install @capacitor/core @capacitor/cli @capacitor/android && npx cap init arrival-difficulty com.arrivaldifficulty.app --web-dir .",
     "android:open": "npx cap sync android && npx cap open android",

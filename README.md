@@ -94,6 +94,29 @@ npm run pwa:check
 npm run estimate:check
 ```
 
+개발용 경로 프록시를 실행하려면:
+
+```powershell
+npm run route:dev
+```
+
+앱에서 테스트하려면 `config.local.js`에 다음 값을 넣습니다.
+
+```js
+window.APP_CONFIG = {
+  ...window.APP_CONFIG,
+  KAKAO_JAVASCRIPT_KEY: "여기에_JavaScript_키",
+  ITS_TRAFFIC_API_KEY: "여기에_ITS_교통소통정보_키",
+  ROUTE_PROXY_URL: "http://127.0.0.1:8787/route-estimate"
+};
+```
+
+프록시 응답 계약을 점검하려면:
+
+```powershell
+npm run route:check
+```
+
 ## API 설정
 
 `.env.example`에는 사용할 API 키 이름을 정리했습니다. 현재 앱은 별도 빌드 주입 없이 `config.js`를 직접 읽습니다.
@@ -152,7 +175,7 @@ https://openapi.its.go.kr:9443/trafficInfo
 - Kakao JavaScript SDK 도메인 등록 후 실제 지도/장소 검색 동작 검증: 진단 패널 완료, 실제 키/브라우저 검증 필요
 - ITS 교통소통정보 API 키 발급 후 실시간 도로 반영 품질 확인
 - TMAP 또는 다른 경로 API를 연결해 실제 예상 지연률 계산
-- TMAP 또는 다른 경로 API를 연결해 실제 예상 지연률 계산: `ROUTE_PROXY_URL` 어댑터 자리 완료, 프록시 구현 필요
+- TMAP 또는 다른 경로 API를 연결해 실제 예상 지연률 계산: `ROUTE_PROXY_URL` 어댑터와 개발용 프록시 완료, 상용 경로 API 프록시 구현 필요
 - 장소 혼잡도 데이터 소스 연결: 서울시 실시간 도시데이터, TMAP 장소 혼잡도 등
 - 장소 혼잡도 데이터 소스 연결: 로컬 추정 어댑터 완료, 서울시/TMAP 외부 데이터 연결 필요
 - API 키 보호를 위한 서버리스 프록시 설계
