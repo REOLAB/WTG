@@ -82,8 +82,15 @@ npm run pwa:check
 
 `.env.example`에는 사용할 API 키 이름을 정리했습니다. 현재 앱은 별도 빌드 주입 없이 `config.js`를 직접 읽습니다.
 
+공개 저장소에 키가 올라가지 않도록 실제 키는 `config.local.js`에 넣는 것을 권장합니다. 이 파일은 `.gitignore`에 포함되어 커밋되지 않습니다.
+
+```powershell
+Copy-Item .\config.local.example.js .\config.local.js
+```
+
 ```js
 window.APP_CONFIG = {
+  ...window.APP_CONFIG,
   KAKAO_JAVASCRIPT_KEY: "여기에_JavaScript_키",
   ITS_TRAFFIC_API_KEY: "여기에_ITS_교통소통정보_키"
 };

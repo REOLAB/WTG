@@ -112,6 +112,15 @@
     </main>
 
     <script src="./config.js"></script>
+    <script>
+      window.APP_CONFIG_READY = new Promise((resolve) => {
+        const script = document.createElement("script");
+        script.src = "./config.local.js";
+        script.onload = resolve;
+        script.onerror = resolve;
+        document.head.appendChild(script);
+      });
+    </script>
     <script src="./app.js"></script>
     <script>
       if ("serviceWorker" in navigator) {

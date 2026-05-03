@@ -843,10 +843,15 @@ window.addEventListener("orientationchange", () => {
   stabilizeKakaoMap(240);
 });
 
-renderQuickList();
-renderResults();
-renderPlace(selectedPlace);
+async function initApp() {
+  await (window.APP_CONFIG_READY || Promise.resolve());
+  renderQuickList();
+  renderResults();
+  renderPlace(selectedPlace);
 
-const kakaoKey = window.APP_CONFIG?.KAKAO_JAVASCRIPT_KEY || "";
-enableKakaoMode(kakaoKey);
-refreshLiveTraffic(selectedPlace);
+  const kakaoKey = window.APP_CONFIG?.KAKAO_JAVASCRIPT_KEY || "";
+  enableKakaoMode(kakaoKey);
+  refreshLiveTraffic(selectedPlace);
+}
+
+initApp();

@@ -8,6 +8,7 @@ const output = join(root, "www");
 const files = [
   "index.html",
   "config.js",
+  "config.local.example.js",
   "styles.css",
   "app.js",
   "manifest.json",

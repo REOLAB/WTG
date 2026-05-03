@@ -21,6 +21,7 @@ if (!manifest.theme_color || !manifest.background_color) fail("manifest colors a
 if (!Array.isArray(manifest.icons) || manifest.icons.length === 0) fail("manifest should include at least one icon");
 if (!index.includes('rel="manifest"')) fail("index.html should link the manifest");
 if (!index.includes("serviceWorker")) fail("index.html should register the service worker");
+if (!index.includes("config.local.js")) fail("index.html should support local API key overrides");
 
 for (const file of requiredShellFiles) {
   const escaped = file.replaceAll("\\", "/");
