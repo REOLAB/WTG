@@ -8,6 +8,7 @@
 
 - 정적 웹앱 기본 구조: `index.html`, `styles.css`, `app.js`
 - PWA 기반 파일: `manifest.json`, `sw.js`, `assets/icon.svg`
+- 서비스워커 앱 셸 캐시, 오프라인 내비게이션 fallback, PWA 설정 점검 스크립트
 - 모바일 우선 UI: 지도 영역, 상단 검색 패널, 하단 결과 시트
 - 데스크톱 UI: 좌측 컨트롤 패널, 우측 지도 스테이지
 - 목적지 검색, 빠른 목적지 선택, 검색어 기반 데모 목적지 생성
@@ -71,6 +72,12 @@ npm run build
 
 빌드 결과는 `www` 폴더에 생성됩니다.
 
+PWA 설정을 점검하려면:
+
+```powershell
+npm run pwa:check
+```
+
 ## API 설정
 
 `.env.example`에는 사용할 API 키 이름을 정리했습니다. 현재 앱은 별도 빌드 주입 없이 `config.js`를 직접 읽습니다.
@@ -124,7 +131,7 @@ https://openapi.its.go.kr:9443/trafficInfo
 - API 키 보호를 위한 서버리스 프록시 설계
 - 현재 위치 기반 출발지 설정과 경로 기준 계산 고도화: 1차 추정 로직 완료, 실제 경로 API 연동 필요
 - 오류 상태, 로딩 상태, API 실패 시 사용자 안내 강화: 1차 상태 배지 완료, 세부 재시도 UI 필요
-- PWA 설치성 테스트와 서비스 워커 캐시 전략 점검
+- PWA 설치성 테스트와 서비스 워커 캐시 전략 점검: 앱 셸 캐시와 점검 스크립트 완료, 실제 브라우저 Lighthouse 검증 필요
 - Android 패키징: Capacitor 프로젝트 초기화, WebView origin 확인, APK 빌드
 - Windows 패키징: Tauri 초기화, 아이콘/권한/빌드 설정, exe 빌드
 - 실제 기기에서 모바일 레이아웃, 지도 리사이즈, 성능 테스트

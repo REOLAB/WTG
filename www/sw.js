@@ -1,10 +1,13 @@
-const CACHE_NAME = "arrival-difficulty-v1";
+const CACHE_VERSION = "v2";
+const CACHE_NAME = `arrival-difficulty-${CACHE_VERSION}`;
 const APP_SHELL = [
   "./",
   "./index.html",
+  "./config.js",
   "./styles.css",
   "./app.js",
   "./manifest.json",
+  "./sw.js",
   "./assets/icon.svg",
 ];
 
@@ -14,22 +17,53 @@ self.addEventListener("install", (event) => {
       return cache.addAll(APP_SHELL);
     }),
   );
+  self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)));
-    }),
+    caches
+      .keys()
+      .then((keys) => {
+        return Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)));
+      })
+      .then(() => self.clients.claim()),
   );
 });
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  const requestUrl = new URL(event.request.url);
+
+  if (requestUrl.origin !== self.location.origin) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request).catch(() => {
+        return caches.match("./index.html");
+      }),
+    );
+    return;
+  }
 
   event.respondWith(
     caches.match(event.request).then((cached) => {
-      return cached || fetch(event.request);
+      if (cached) return cached;
+
+      return fetch(event.request).then((response) => {
+        if (!response || response.status !== 200 || response.type !== "basic") {
+          return response;
+        }
+
+        const responseClone = response.clone();
+        caches.open(CACHE_NAME).then((cache) => {
+          cache.put(event.request, responseClone);
+        });
+        return response;
+      });
     }),
   );
 });

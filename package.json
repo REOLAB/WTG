@@ -5,6 +5,7 @@
   "description": "Serverless web prototype for destination arrival difficulty, designed for Windows exe and Android apk packaging.",
   "scripts": {
     "build": "node scripts/build-static.mjs",
+    "pwa:check": "node scripts/check-pwa.mjs",
     "start": "node -e \"console.log('Serverless mode: open index.html directly in the browser.')\"",
     "android:init": "npm install @capacitor/core @capacitor/cli @capacitor/android && npx cap init arrival-difficulty com.arrivaldifficulty.app --web-dir .",
     "android:open": "npx cap sync android && npx cap open android",
