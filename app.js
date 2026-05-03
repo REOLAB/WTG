@@ -129,6 +129,7 @@ let kakaoScriptElement = null;
 let relayoutTimer = null;
 let activeTrafficRequestId = 0;
 let selectedDepartureHour = null;
+let userLocation = null;
 
 const elements = {
   quickList: document.querySelector("#quickList"),
@@ -171,6 +172,63 @@ function calculateScore(place) {
   const totalWeight = keys.reduce((sum, key) => sum + weights[key], 0);
   const baseScore = keys.reduce((sum, key) => sum + place.data[key] * (weights[key] / totalWeight), 0);
   return Math.round(applyContextAdjustment(baseScore, place));
+}
+
+function toRadians(value) {
+  return (value * Math.PI) / 180;
+}
+
+function distanceKm(from, to) {
+  const earthRadiusKm = 6371;
+  const latDelta = toRadians(to.lat - from.lat);
+  const lngDelta = toRadians(to.lng - from.lng);
+  const fromLat = toRadians(from.lat);
+  const toLat = toRadians(to.lat);
+  const a =
+    Math.sin(latDelta / 2) ** 2 +
+    Math.cos(fromLat) * Math.cos(toLat) * Math.sin(lngDelta / 2) ** 2;
+
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function estimateRoute(place, origin = userLocation) {
+  if (!origin || !place.coord) return null;
+
+  const straightDistance = distanceKm(origin, place.coord);
+  const drivingDistance = Math.max(straightDistance * 1.32, 0.6);
+  const timeProfile = getTimeProfile();
+  const liveSpeed = place.liveTraffic?.avgSpeed;
+  const baseSpeed =
+    liveSpeed && isCurrentDeparture()
+      ? liveSpeed
+      : timeProfile.label === "출퇴근"
+        ? 24
+        : timeProfile.label === "심야"
+          ? 46
+          : 32;
+  const expectedMinutes = Math.max(4, Math.round((drivingDistance / Math.max(baseSpeed, 10)) * 60));
+  const freeFlowMinutes = Math.max(3, Math.round((drivingDistance / 46) * 60));
+  const delayRate = clamp(Math.round(((expectedMinutes - freeFlowMinutes) / freeFlowMinutes) * 100), 0, 160);
+  const difficulty = clamp(Math.round(delayRate * 0.58 + drivingDistance * 1.8 + (timeProfile.label === "출퇴근" ? 12 : 0)));
+
+  return {
+    drivingDistance,
+    expectedMinutes,
+    freeFlowMinutes,
+    delayRate,
+    difficulty,
+    source: liveSpeed && isCurrentDeparture() ? "현재 위치 + ITS 속도" : "현재 위치 + 시간대 추정",
+  };
+}
+
+function applyRouteEstimate(place) {
+  const routeEstimate = estimateRoute(place);
+  if (!routeEstimate) return false;
+
+  place.routeEstimate = routeEstimate;
+  place.data.delay = routeEstimate.difficulty;
+  place.available.route = true;
+  return true;
 }
 
 function getCurrentHour() {
@@ -314,6 +372,10 @@ function renderFactors(place) {
         key === "roadFlow" && place.liveTraffic?.sampleCount > 0
           ? `<p class="factor-note">${isCurrentDeparture() ? "ITS" : "현재 ITS"} 평균 ${Math.round(place.liveTraffic.avgSpeed)}km/h · ${place.liveTraffic.sampleCount}개 구간</p>`
           : "";
+      const routeNote =
+        key === "delay" && place.routeEstimate
+          ? `<p class="factor-note">${place.routeEstimate.source} · 약 ${place.routeEstimate.expectedMinutes}분 · ${place.routeEstimate.drivingDistance.toFixed(1)}km</p>`
+          : "";
       return `
         <article class="factor-card">
           <div class="factor-top">
@@ -324,6 +386,7 @@ function renderFactors(place) {
             <i style="--value: ${value}"></i>
           </div>
           ${liveNote}
+          ${routeNote}
         </article>
       `;
     })
@@ -376,6 +439,8 @@ function stabilizeKakaoMap(delay = 80) {
 }
 
 function renderPlace(place) {
+  applyRouteEstimate(place);
+
   const score = calculateScore(place);
   const level = getLevel(score);
 
@@ -572,12 +637,15 @@ async function refreshLiveTraffic(place) {
 
     if (!liveTraffic) {
       elements.modeStatus.textContent = kakaoMap ? "Kakao 지도 · 주변 ITS 구간 없음" : "주변 ITS 구간 없음";
+      applyRouteEstimate(place);
+      renderPlace(place);
       return;
     }
 
     place.liveTraffic = liveTraffic;
     place.data.roadFlow = liveTraffic.difficulty;
     place.available.road = true;
+    applyRouteEstimate(place);
     elements.modeStatus.textContent = `Kakao 지도 · ITS ${Math.round(liveTraffic.avgSpeed)}km/h 반영`;
     renderPlace(place);
   } catch (error) {
@@ -694,17 +762,34 @@ elements.searchInput.addEventListener("input", () => {
 elements.locateButton.addEventListener("click", () => {
   if (!navigator.geolocation) {
     elements.locateButton.title = "현재 위치를 사용할 수 없습니다";
+    elements.modeStatus.textContent = "현재 위치를 사용할 수 없습니다";
     return;
   }
 
+  elements.locateButton.disabled = true;
+  elements.locateButton.classList.add("is-loading");
+  elements.modeStatus.textContent = "현재 위치 확인 중";
+
   navigator.geolocation.getCurrentPosition(
-    () => {
+    (position) => {
+      userLocation = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+      };
       elements.locateButton.title = "현재 위치 기준 적용됨";
-      selectedPlace.data.delay = clamp(selectedPlace.data.delay + 3);
+      elements.locateButton.disabled = false;
+      elements.locateButton.classList.remove("is-loading");
+      applyRouteEstimate(selectedPlace);
       renderPlace(selectedPlace);
+      refreshLiveTraffic(selectedPlace);
+      elements.modeStatus.textContent = `현재 위치 기준 · 정확도 약 ${Math.round(position.coords.accuracy)}m`;
     },
     () => {
       elements.locateButton.title = "위치 권한이 필요합니다";
+      elements.locateButton.disabled = false;
+      elements.locateButton.classList.remove("is-loading");
+      elements.modeStatus.textContent = "위치 권한이 필요합니다";
     },
     { enableHighAccuracy: true, timeout: 5000 },
   );
@@ -717,6 +802,7 @@ elements.departureOptions.querySelectorAll("button").forEach((button) => {
 
     elements.departureOptions.querySelectorAll("button").forEach((item) => item.classList.remove("active"));
     button.classList.add("active");
+    applyRouteEstimate(selectedPlace);
     renderPlace(selectedPlace);
   });
 });

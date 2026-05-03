@@ -116,6 +116,22 @@ h2 {
   font-size: 24px;
 }
 
+.icon-button:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.icon-button.is-loading span {
+  animation: pulse-position 0.9s ease-in-out infinite;
+}
+
+@keyframes pulse-position {
+  50% {
+    transform: scale(0.82);
+    opacity: 0.58;
+  }
+}
+
 .search-box {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 76px;
