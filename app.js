@@ -119,6 +119,8 @@ const categoryProfiles = [
   { keywords: ["학교", "병원", "공공기관"], multiplier: 0.82 },
 ];
 
+const MAX_AUTO_LOCATION_ACCURACY_M = 1000;
+
 let selectedPlace = places[0];
 let currentResults = places.slice(0, 4);
 let kakaoMap = null;
@@ -129,6 +131,7 @@ let kakaoScriptPromise = null;
 let kakaoScriptElement = null;
 let relayoutTimer = null;
 let activeTrafficRequestId = 0;
+let activeRouteRequestId = 0;
 let selectedDepartureHour = null;
 let userLocation = null;
 let diagnostics = {
@@ -136,6 +139,7 @@ let diagnostics = {
   kakaoMap: "대기 중",
   itsKey: "확인 중",
   itsTraffic: "대기 중",
+  routeApi: "미설정",
   location: "확인 중",
 };
 
@@ -144,6 +148,8 @@ const elements = {
   resultList: document.querySelector("#resultList"),
   searchForm: document.querySelector("#searchForm"),
   searchInput: document.querySelector("#searchInput"),
+  originForm: document.querySelector("#originForm"),
+  originInput: document.querySelector("#originInput"),
   placeName: document.querySelector("#placeName"),
   placeAddress: document.querySelector("#placeAddress"),
   scoreRing: document.querySelector("#scoreRing"),
@@ -165,6 +171,7 @@ const elements = {
   diagKakaoMap: document.querySelector("#diagKakaoMap"),
   diagItsKey: document.querySelector("#diagItsKey"),
   diagItsTraffic: document.querySelector("#diagItsTraffic"),
+  diagRouteApi: document.querySelector("#diagRouteApi"),
   diagLocation: document.querySelector("#diagLocation"),
   departureOptions: document.querySelector("#departureOptions"),
   departureLabel: document.querySelector("#departureLabel"),
@@ -186,6 +193,7 @@ function renderDiagnostics() {
   elements.diagKakaoMap.textContent = diagnostics.kakaoMap;
   elements.diagItsKey.textContent = diagnostics.itsKey;
   elements.diagItsTraffic.textContent = diagnostics.itsTraffic;
+  elements.diagRouteApi.textContent = diagnostics.routeApi;
   elements.diagLocation.textContent = diagnostics.location;
 }
 
@@ -198,6 +206,7 @@ function refreshConfigDiagnostics() {
   updateDiagnostics({
     kakaoKey: window.APP_CONFIG?.KAKAO_JAVASCRIPT_KEY?.trim() ? "설정됨" : "미설정",
     itsKey: getItsTrafficKey() ? "설정됨" : "미설정",
+    routeApi: getRouteProxyUrl() ? "설정됨" : "미설정",
     location: getLocationApiStatus(),
   });
 }
@@ -214,6 +223,23 @@ function getGeolocationErrorMessage(error) {
   if (error?.code === error.POSITION_UNAVAILABLE) return "현재 위치를 확인할 수 없습니다";
   if (error?.code === error.TIMEOUT) return "위치 확인 시간이 초과되었습니다";
   return "위치 확인에 실패했습니다";
+}
+
+function isUsableOrigin(origin = userLocation) {
+  if (!origin) return false;
+  if (origin.source === "manual") return true;
+  return !origin.accuracy || origin.accuracy <= MAX_AUTO_LOCATION_ACCURACY_M;
+}
+
+function formatOriginLabel(origin) {
+  if (!origin) return "";
+  if (origin.label) return origin.label;
+  if (origin.accuracy) return `현재 위치 · 정확도 약 ${Math.round(origin.accuracy)}m`;
+  return "현재 위치";
+}
+
+function getRouteProxyUrl() {
+  return window.APP_CONFIG?.ROUTE_PROXY_URL?.trim() || "";
 }
 
 function clamp(value, min = 0, max = 100) {
@@ -254,7 +280,7 @@ function distanceKm(from, to) {
 }
 
 function estimateRoute(place, origin = userLocation) {
-  if (!origin || !place.coord) return null;
+  if (!origin || !isUsableOrigin(origin) || !place.coord) return null;
 
   const straightDistance = distanceKm(origin, place.coord);
   const drivingDistance = Math.max(straightDistance * 1.32, 0.6);
@@ -280,6 +306,7 @@ function estimateRoute(place, origin = userLocation) {
     delayRate,
     difficulty,
     source: liveSpeed && isCurrentDeparture() ? "현재 위치 + ITS 속도" : "현재 위치 + 시간대 추정",
+    type: "local",
   };
 }
 
@@ -291,6 +318,92 @@ function applyRouteEstimate(place) {
   place.data.delay = routeEstimate.difficulty;
   place.available.route = true;
   return true;
+}
+
+function normalizeRoutePayload(payload) {
+  const expectedMinutes = Number(payload?.expectedMinutes ?? payload?.durationMinutes ?? payload?.duration_min);
+  const freeFlowMinutes = Number(payload?.freeFlowMinutes ?? payload?.freeflowMinutes ?? payload?.free_flow_minutes);
+  const drivingDistance = Number(payload?.drivingDistance ?? payload?.distanceKm ?? payload?.distance_km);
+  const delayRate = Number(payload?.delayRate ?? payload?.delay_rate);
+  const difficulty = Number(payload?.difficulty);
+
+  if (!Number.isFinite(expectedMinutes) || !Number.isFinite(drivingDistance)) return null;
+
+  const safeFreeFlow = Number.isFinite(freeFlowMinutes) ? freeFlowMinutes : Math.max(3, Math.round((drivingDistance / 46) * 60));
+  const safeDelayRate = Number.isFinite(delayRate)
+    ? delayRate
+    : clamp(Math.round(((expectedMinutes - safeFreeFlow) / safeFreeFlow) * 100), 0, 160);
+
+  return {
+    drivingDistance,
+    expectedMinutes,
+    freeFlowMinutes: safeFreeFlow,
+    delayRate: safeDelayRate,
+    difficulty: Number.isFinite(difficulty)
+      ? clamp(Math.round(difficulty))
+      : clamp(Math.round(safeDelayRate * 0.58 + drivingDistance * 1.8)),
+    source: payload?.source || "경로 API",
+    type: "proxy",
+  };
+}
+
+async function fetchRouteProxyEstimate(place, origin, signal) {
+  const url = getRouteProxyUrl();
+  if (!url || !origin || !place.coord) return null;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      origin: { lat: origin.lat, lng: origin.lng },
+      destination: { lat: place.coord.lat, lng: place.coord.lng },
+      departureHour: getCurrentHour(),
+      place: { id: place.id, name: place.name, category: place.category },
+    }),
+    signal,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Route proxy request failed: ${response.status}`);
+  }
+
+  return normalizeRoutePayload(await response.json());
+}
+
+async function refreshRouteEstimate(place) {
+  const requestId = ++activeRouteRequestId;
+  const origin = userLocation;
+
+  if (!getRouteProxyUrl()) {
+    updateDiagnostics({ routeApi: "미설정" });
+    return;
+  }
+
+  if (!origin || !isUsableOrigin(origin) || !place.coord) {
+    updateDiagnostics({ routeApi: "출발지/목적지 대기" });
+    return;
+  }
+
+  updateDiagnostics({ routeApi: "조회 중" });
+
+  try {
+    const routeEstimate = await fetchRouteProxyEstimate(place, origin);
+    if (requestId !== activeRouteRequestId || selectedPlace.id !== place.id) return;
+    if (!routeEstimate) {
+      updateDiagnostics({ routeApi: "응답 없음" });
+      return;
+    }
+
+    place.routeEstimate = routeEstimate;
+    place.data.delay = routeEstimate.difficulty;
+    place.available.route = true;
+    renderPlace(place);
+    updateDiagnostics({ routeApi: `${routeEstimate.expectedMinutes}분 · ${routeEstimate.drivingDistance.toFixed(1)}km` });
+  } catch (error) {
+    if (requestId !== activeRouteRequestId) return;
+    console.warn(error?.message || "Route proxy failed");
+    updateDiagnostics({ routeApi: "조회 실패" });
+  }
 }
 
 function getCurrentHour() {
@@ -502,7 +615,9 @@ function stabilizeKakaoMap(delay = 80) {
 }
 
 function renderPlace(place) {
-  applyRouteEstimate(place);
+  if (place.routeEstimate?.type !== "proxy") {
+    applyRouteEstimate(place);
+  }
 
   const score = calculateScore(place);
   const level = getLevel(score);
@@ -535,6 +650,7 @@ function selectPlace(place) {
   const visibleResults = currentResults.some((result) => result.id === place.id) ? currentResults : searchPlaces(place.name);
   renderResults(visibleResults);
   renderPlace(place);
+  refreshRouteEstimate(place);
   refreshLiveTraffic(place);
 }
 
@@ -583,6 +699,16 @@ function createKakaoPlace(item) {
   };
 }
 
+function createOriginFromKakaoPlace(item) {
+  return {
+    lat: Number(item.y),
+    lng: Number(item.x),
+    accuracy: 100,
+    source: "manual",
+    label: item.place_name,
+  };
+}
+
 function searchPlaces(query) {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return places.slice(0, 4);
@@ -610,6 +736,73 @@ function searchKakaoPlaces(query) {
       resolve(result.slice(0, 5).map(createKakaoPlace));
     });
   });
+}
+
+function searchKakaoOrigin(query) {
+  if (!kakaoPlaces || !query.trim()) {
+    return Promise.resolve(null);
+  }
+
+  return new Promise((resolve) => {
+    kakaoPlaces.keywordSearch(query.trim(), (result, status) => {
+      if (status !== window.kakao.maps.services.Status.OK || !result[0]) {
+        resolve(null);
+        return;
+      }
+
+      resolve(createOriginFromKakaoPlace(result[0]));
+    });
+  });
+}
+
+async function findOrigin(query) {
+  const kakaoOrigin = await searchKakaoOrigin(query);
+  if (kakaoOrigin) return kakaoOrigin;
+
+  const localMatch = searchPlaces(query).find((place) => place.coord);
+  if (!localMatch) return null;
+
+  return {
+    ...localMatch.coord,
+    accuracy: 100,
+    source: "manual",
+    label: localMatch.name,
+  };
+}
+
+function applyOrigin(origin) {
+  userLocation = origin;
+  elements.originInput.value = formatOriginLabel(origin);
+  applyRouteEstimate(selectedPlace);
+  updateUserLocationMap(selectedPlace);
+  renderPlace(selectedPlace);
+  refreshRouteEstimate(selectedPlace);
+  refreshLiveTraffic(selectedPlace);
+  updateDiagnostics({ location: origin.source === "manual" ? `수동 출발지 · ${origin.label}` : `확인됨 · ${Math.round(origin.accuracy)}m` });
+}
+
+async function runOriginSearch(query) {
+  const normalized = query.trim();
+  if (!normalized) {
+    setModeStatus("출발지를 입력하세요", "warning");
+    return;
+  }
+
+  setModeStatus(kakaoPlaces ? "출발지 검색 중" : "데모 출발지 검색 중", "loading");
+
+  try {
+    const origin = await findOrigin(normalized);
+    if (!origin) {
+      setModeStatus("출발지를 찾지 못했습니다", "warning");
+      return;
+    }
+
+    applyOrigin(origin);
+    setModeStatus(`출발지 적용 · ${origin.label}`, "success");
+  } catch (error) {
+    console.warn(error?.message || "Origin search failed");
+    setModeStatus("출발지 검색에 실패했습니다", "error");
+  }
 }
 
 async function runSearch(query) {
@@ -936,19 +1129,23 @@ elements.locateButton.addEventListener("click", () => {
 
   navigator.geolocation.getCurrentPosition(
     (position) => {
-      userLocation = {
+      const origin = {
         lat: position.coords.latitude,
         lng: position.coords.longitude,
         accuracy: position.coords.accuracy,
+        source: "device",
       };
       elements.locateButton.title = "현재 위치 기준 적용됨";
       elements.locateButton.disabled = false;
       elements.locateButton.classList.remove("is-loading");
-      applyRouteEstimate(selectedPlace);
-      updateUserLocationMap(selectedPlace);
-      renderPlace(selectedPlace);
-      refreshLiveTraffic(selectedPlace);
-      updateDiagnostics({ location: `확인됨 · ${Math.round(position.coords.accuracy)}m` });
+
+      if (!isUsableOrigin(origin)) {
+        updateDiagnostics({ location: `정확도 낮음 · ${Math.round(origin.accuracy)}m` });
+        setModeStatus("현재 위치 정확도가 낮아 계산에 반영하지 않았습니다", "warning");
+        return;
+      }
+
+      applyOrigin(origin);
       setModeStatus(`현재 위치 기준 · 정확도 약 ${Math.round(position.coords.accuracy)}m`, "success");
     },
     (error) => {
@@ -961,6 +1158,11 @@ elements.locateButton.addEventListener("click", () => {
     },
     { enableHighAccuracy: true, timeout: 5000 },
   );
+});
+
+elements.originForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  runOriginSearch(elements.originInput.value);
 });
 
 elements.diagnosticsRetry.addEventListener("click", () => {
@@ -981,6 +1183,7 @@ elements.departureOptions.querySelectorAll("button").forEach((button) => {
     button.classList.add("active");
     applyRouteEstimate(selectedPlace);
     renderPlace(selectedPlace);
+    refreshRouteEstimate(selectedPlace);
   });
 });
 
@@ -1009,6 +1212,7 @@ async function initApp() {
 
   const kakaoKey = window.APP_CONFIG?.KAKAO_JAVASCRIPT_KEY || "";
   enableKakaoMode(kakaoKey);
+  refreshRouteEstimate(selectedPlace);
   refreshLiveTraffic(selectedPlace);
 }
 

@@ -2,4 +2,5 @@ window.APP_CONFIG = {
   ...window.APP_CONFIG,
   KAKAO_JAVASCRIPT_KEY: "",
   ITS_TRAFFIC_API_KEY: "",
+  ROUTE_PROXY_URL: "",
 };

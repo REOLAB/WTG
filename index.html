@@ -28,6 +28,12 @@
           <button type="submit">검색</button>
         </form>
 
+        <form class="origin-box" id="originForm">
+          <label class="sr-only" for="originInput">출발지 보정</label>
+          <input id="originInput" name="origin" autocomplete="off" placeholder="출발지 직접 입력" />
+          <button type="submit">적용</button>
+        </form>
+
         <p class="mode-status" id="modeStatus" data-tone="info">데모 모드 · 서버 없이 동작</p>
 
         <section class="diagnostics-panel" aria-label="연결 진단">
@@ -55,6 +61,10 @@
             <div>
               <dt>ITS 도로</dt>
               <dd id="diagItsTraffic">대기 중</dd>
+            </div>
+            <div>
+              <dt>경로 API</dt>
+              <dd id="diagRouteApi">미설정</dd>
             </div>
             <div>
               <dt>위치 API</dt>
