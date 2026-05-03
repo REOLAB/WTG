@@ -123,6 +123,7 @@ let selectedPlace = places[0];
 let currentResults = places.slice(0, 4);
 let kakaoMap = null;
 let kakaoMarker = null;
+let kakaoUserMarker = null;
 let kakaoPlaces = null;
 let kakaoScriptPromise = null;
 let kakaoScriptElement = null;
@@ -135,6 +136,7 @@ let diagnostics = {
   kakaoMap: "대기 중",
   itsKey: "확인 중",
   itsTraffic: "대기 중",
+  location: "확인 중",
 };
 
 const elements = {
@@ -153,6 +155,7 @@ const elements = {
   serviceGrid: document.querySelector("#serviceGrid"),
   mockMap: document.querySelector("#mockMap"),
   kakaoMap: document.querySelector("#kakaoMap"),
+  currentLocationMarker: document.querySelector("#currentLocationMarker"),
   updatedAt: document.querySelector("#updatedAt"),
   locateButton: document.querySelector("#locateButton"),
   modeStatus: document.querySelector("#modeStatus"),
@@ -162,6 +165,7 @@ const elements = {
   diagKakaoMap: document.querySelector("#diagKakaoMap"),
   diagItsKey: document.querySelector("#diagItsKey"),
   diagItsTraffic: document.querySelector("#diagItsTraffic"),
+  diagLocation: document.querySelector("#diagLocation"),
   departureOptions: document.querySelector("#departureOptions"),
   departureLabel: document.querySelector("#departureLabel"),
 };
@@ -182,6 +186,7 @@ function renderDiagnostics() {
   elements.diagKakaoMap.textContent = diagnostics.kakaoMap;
   elements.diagItsKey.textContent = diagnostics.itsKey;
   elements.diagItsTraffic.textContent = diagnostics.itsTraffic;
+  elements.diagLocation.textContent = diagnostics.location;
 }
 
 function updateDiagnostics(next) {
@@ -193,7 +198,22 @@ function refreshConfigDiagnostics() {
   updateDiagnostics({
     kakaoKey: window.APP_CONFIG?.KAKAO_JAVASCRIPT_KEY?.trim() ? "설정됨" : "미설정",
     itsKey: getItsTrafficKey() ? "설정됨" : "미설정",
+    location: getLocationApiStatus(),
   });
+}
+
+function getLocationApiStatus() {
+  if (!navigator.geolocation) return "미지원";
+  if (window.isSecureContext) return "사용 가능";
+  if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") return "사용 가능";
+  return "보안 컨텍스트 필요";
+}
+
+function getGeolocationErrorMessage(error) {
+  if (error?.code === error.PERMISSION_DENIED) return "위치 권한이 거부되었습니다";
+  if (error?.code === error.POSITION_UNAVAILABLE) return "현재 위치를 확인할 수 없습니다";
+  if (error?.code === error.TIMEOUT) return "위치 확인 시간이 초과되었습니다";
+  return "위치 확인에 실패했습니다";
 }
 
 function clamp(value, min = 0, max = 100) {
@@ -468,6 +488,7 @@ function renderMap(place) {
   });
 
   updateKakaoMap(place);
+  updateUserLocationMap(place);
 }
 
 function stabilizeKakaoMap(delay = 80) {
@@ -789,6 +810,7 @@ async function enableKakaoMode(key) {
   } catch (error) {
     kakaoMap = null;
     kakaoMarker = null;
+    kakaoUserMarker = null;
     kakaoPlaces = null;
     kakaoScriptPromise = null;
     if (kakaoScriptElement) {
@@ -805,6 +827,7 @@ async function enableKakaoMode(key) {
 function disableKakaoMode() {
   kakaoMap = null;
   kakaoMarker = null;
+  kakaoUserMarker = null;
   kakaoPlaces = null;
   kakaoScriptPromise = null;
   if (kakaoScriptElement) {
@@ -821,7 +844,66 @@ function updateKakaoMap(place) {
 
   const position = new window.kakao.maps.LatLng(place.coord.lat, place.coord.lng);
   kakaoMarker.setPosition(position);
+
+  if (userLocation) {
+    fitKakaoRouteBounds(place);
+    return;
+  }
+
   kakaoMap.setCenter(position);
+}
+
+function fitKakaoRouteBounds(place) {
+  if (!kakaoMap || !place.coord || !userLocation) return;
+
+  const bounds = new window.kakao.maps.LatLngBounds();
+  bounds.extend(new window.kakao.maps.LatLng(userLocation.lat, userLocation.lng));
+  bounds.extend(new window.kakao.maps.LatLng(place.coord.lat, place.coord.lng));
+  kakaoMap.setBounds(bounds);
+}
+
+function updateKakaoUserMarker() {
+  if (!kakaoMap || !userLocation) return;
+
+  const position = new window.kakao.maps.LatLng(userLocation.lat, userLocation.lng);
+  if (!kakaoUserMarker) {
+    kakaoUserMarker = new window.kakao.maps.CustomOverlay({
+      map: kakaoMap,
+      position,
+      content: '<div class="kakao-user-dot" title="현재 위치"></div>',
+      xAnchor: 0.5,
+      yAnchor: 0.5,
+    });
+    return;
+  }
+
+  kakaoUserMarker.setMap(kakaoMap);
+  kakaoUserMarker.setPosition(position);
+}
+
+function getMockUserPoint(place) {
+  if (!userLocation || !place.coord) return null;
+
+  const lngDelta = userLocation.lng - place.coord.lng;
+  const latDelta = userLocation.lat - place.coord.lat;
+  return {
+    x: clamp(place.marker.x + lngDelta * 120, 8, 92),
+    y: clamp(place.marker.y - latDelta * 150, 14, 86),
+  };
+}
+
+function updateUserLocationMap(place = selectedPlace) {
+  if (!userLocation) {
+    elements.mockMap.classList.remove("has-user-location");
+    return;
+  }
+
+  const point = getMockUserPoint(place) || { x: 22, y: 72 };
+  elements.mockMap.style.setProperty("--user-x", `${point.x}%`);
+  elements.mockMap.style.setProperty("--user-y", `${point.y}%`);
+  elements.mockMap.classList.add("has-user-location");
+  updateKakaoUserMarker();
+  fitKakaoRouteBounds(place);
 }
 
 elements.searchForm.addEventListener("submit", (event) => {
@@ -836,13 +918,21 @@ elements.searchInput.addEventListener("input", () => {
 elements.locateButton.addEventListener("click", () => {
   if (!navigator.geolocation) {
     elements.locateButton.title = "현재 위치를 사용할 수 없습니다";
+    updateDiagnostics({ location: "미지원" });
     setModeStatus("현재 위치를 사용할 수 없습니다", "error");
+    return;
+  }
+
+  if (!window.isSecureContext && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+    updateDiagnostics({ location: "보안 컨텍스트 필요" });
+    setModeStatus("현재 위치는 localhost 또는 HTTPS에서 사용할 수 있습니다", "warning");
     return;
   }
 
   elements.locateButton.disabled = true;
   elements.locateButton.classList.add("is-loading");
   setModeStatus("현재 위치 확인 중", "loading");
+  updateDiagnostics({ location: "확인 중" });
 
   navigator.geolocation.getCurrentPosition(
     (position) => {
@@ -855,15 +945,19 @@ elements.locateButton.addEventListener("click", () => {
       elements.locateButton.disabled = false;
       elements.locateButton.classList.remove("is-loading");
       applyRouteEstimate(selectedPlace);
+      updateUserLocationMap(selectedPlace);
       renderPlace(selectedPlace);
       refreshLiveTraffic(selectedPlace);
+      updateDiagnostics({ location: `확인됨 · ${Math.round(position.coords.accuracy)}m` });
       setModeStatus(`현재 위치 기준 · 정확도 약 ${Math.round(position.coords.accuracy)}m`, "success");
     },
-    () => {
-      elements.locateButton.title = "위치 권한이 필요합니다";
+    (error) => {
+      const message = getGeolocationErrorMessage(error);
+      elements.locateButton.title = message;
       elements.locateButton.disabled = false;
       elements.locateButton.classList.remove("is-loading");
-      setModeStatus("위치 권한이 필요합니다", "warning");
+      updateDiagnostics({ location: message });
+      setModeStatus(message, "warning");
     },
     { enableHighAccuracy: true, timeout: 5000 },
   );
